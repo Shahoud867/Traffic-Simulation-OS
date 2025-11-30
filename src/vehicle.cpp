@@ -2,8 +2,8 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <pthread.h>
-#include "vehicle.h"
-#include "utils.h"
+#include "vehicle.hpp"
+#include "utils.hpp"
 
 const char* VehicleTypeNames[] = {
     "Ambulance", "Firetruck", "Bus", "Car", "Bike", "Tractor"

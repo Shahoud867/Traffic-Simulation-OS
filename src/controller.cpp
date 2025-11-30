@@ -2,9 +2,9 @@
 #include <cstdlib>
 #include <pthread.h>
 #include <unistd.h>
-#include "controller.h"
-#include "vehicle.h"
-#include "utils.h"
+#include "controller.hpp"
+#include "vehicle.hpp"
+#include "utils.hpp"
 
 void run_controller(IntersectionID id) {
     char log_msg[100];

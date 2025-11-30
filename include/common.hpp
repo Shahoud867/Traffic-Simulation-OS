@@ -1,5 +1,5 @@
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef COMMON_HPP
+#define COMMON_HPP
 
 #include <sys/types.h>
 
@@ -47,4 +47,4 @@ typedef struct {
     VehicleType v_type;
 } IPC_Message;
 
-#endif // COMMON_H
+#endif // COMMON_HPP

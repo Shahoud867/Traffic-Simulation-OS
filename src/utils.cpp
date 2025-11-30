@@ -2,7 +2,7 @@
 #include <ctime>
 #include <cstring>
 #include <cstdarg>
-#include "utils.h"
+#include "utils.hpp"
 
 #define LOG_FILE "logs/traffic_sim.log"
 

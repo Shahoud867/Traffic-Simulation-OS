@@ -4,9 +4,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <csignal>
-#include "common.h"
-#include "controller.h"
-#include "utils.h"
+#include "common.hpp"
+#include "controller.hpp"
+#include "utils.hpp"
 
 pid_t f10_pid;
 

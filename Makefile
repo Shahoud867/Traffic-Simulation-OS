@@ -1,5 +1,5 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -pthread -Iinclude
+CXX = g++
+CXXFLAGS = -Wall -Wextra -std=c++17 -pthread -Iinclude
 LDFLAGS = -pthread -lncurses
 
 SRC_DIR = src
@@ -8,8 +8,8 @@ BIN_DIR = bin
 INCLUDE_DIR = include
 
 # List of source files
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
+SRCS = $(wildcard $(SRC_DIR)/*.cpp)
+OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
 TARGET = $(BIN_DIR)/traffic_sim
 
@@ -18,10 +18,10 @@ TARGET = $(BIN_DIR)/traffic_sim
 all: directories $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	$(CXX) $(OBJS) -o $@ $(LDFLAGS)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 directories:
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR) logs

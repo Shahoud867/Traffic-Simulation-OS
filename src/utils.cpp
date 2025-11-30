@@ -1,7 +1,7 @@
-#include <stdio.h>
-#include <time.h>
-#include <string.h>
-#include <stdarg.h>
+#include <cstdio>
+#include <ctime>
+#include <cstring>
+#include <cstdarg>
 #include "utils.h"
 
 #define LOG_FILE "logs/traffic_sim.log"

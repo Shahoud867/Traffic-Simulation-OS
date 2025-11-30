@@ -2,6 +2,8 @@
 
 A multi-process, multi-threaded simulation of traffic flow across two intersections (F10 and F11) with parking management and emergency vehicle preemption.
 
+**Language**: C++ (C++17 standard)
+
 ## Current Status
 **Phase 1 Complete**: Basic simulation skeleton with:
 - Main process spawning a Controller process (F10).
@@ -15,7 +17,7 @@ This project requires a POSIX-compliant environment (Linux).
 If you are on **Windows**, you **MUST** use **WSL (Windows Subsystem for Linux)**.
 
 ### Required Tools
-- `gcc` (GNU Compiler Collection)
+- `g++` (GNU C++ Compiler with C++17 support)
 - `make` (Build automation)
 - `libncurses-dev` (For future visualization)
 

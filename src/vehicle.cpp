@@ -1,5 +1,5 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 #include <unistd.h>
 #include <pthread.h>
 #include "vehicle.h"
@@ -41,12 +41,12 @@ void* vehicle_generator(void* arg) {
     log_event(start_msg);
 
     while (1) {
-        Vehicle* v = malloc(sizeof(Vehicle));
+        Vehicle* v = (Vehicle*)malloc(sizeof(Vehicle));
         v->id = ++vehicle_count;
-        v->type = rand() % 6;
-        v->entry = rand() % 4;
+        v->type = (VehicleType)(rand() % 6);
+        v->entry = (Direction)(rand() % 4);
         do {
-            v->dest = rand() % 4;
+            v->dest = (Direction)(rand() % 4);
         } while (v->dest == v->entry); // Destination must be different from entry
         v->current_intersection = *id;
 

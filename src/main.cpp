@@ -52,7 +52,7 @@ void handle_sigint(int sig) {
     exit(0);
 }
 
-void run_phase2_demo() {
+void run_phase2_demo(int max_vehicles) {
     printf("=== Running Phase 2 Demo: Single Intersection with Quadrant Synchronization ===\n");
     log_event("Phase 2 Demo Started");
     
@@ -63,11 +63,12 @@ void run_phase2_demo() {
     ctx.write_fd = -1;  // No IPC
     ctx.read_fd = -1;
     ctx.running = true;
+    ctx.max_vehicles = max_vehicles;
     
     run_controller_with_ipc(&ctx);
 }
 
-void run_phase3_demo() {
+void run_phase3_demo(int max_vehicles) {
     printf("=== Running Phase 3 Demo: Dual Intersections with IPC ===\n");
     log_event("Phase 3 Demo Started");
     
@@ -95,11 +96,12 @@ void run_phase3_demo() {
         close(pipe_f11_to_f10[1]);  // Close write end of pipe we read from
         
         // Setup controller context
-        ControllerContext ctx;
+    ControllerContext ctx;
         strcpy(ctx.name, "F10");
         ctx.id = INTERSECTION_F10;
         ctx.write_fd = pipe_f10_to_f11[1];  // Write to F11
         ctx.read_fd = pipe_f11_to_f10[0];   // Read from F11
+    ctx.max_vehicles = max_vehicles;
         
         run_controller_with_ipc(&ctx);
         
@@ -124,11 +126,12 @@ void run_phase3_demo() {
         close(pipe_f11_to_f10[0]);  // Close read end of pipe we write to
         
         // Setup controller context
-        ControllerContext ctx;
+    ControllerContext ctx;
         strcpy(ctx.name, "F11");
         ctx.id = INTERSECTION_F11;
         ctx.write_fd = pipe_f11_to_f10[1];  // Write to F10
         ctx.read_fd = pipe_f10_to_f11[0];   // Read from F10
+    ctx.max_vehicles = max_vehicles;
         
         run_controller_with_ipc(&ctx);
         
@@ -162,19 +165,24 @@ int main(int argc, char* argv[]) {
     
     // Check command line arguments
     int phase = 3;  // Default to Phase 3
+    int max_vehicles = 0; // <=0 means unlimited
     if (argc > 1) {
         phase = atoi(argv[1]);
+    }
+    if (argc > 2) {
+        max_vehicles = atoi(argv[2]);
     }
     
     log_event("=== Traffic Simulation Started ===");
     
     if (phase == 2) {
-        run_phase2_demo();
+        run_phase2_demo(max_vehicles);
     } else if (phase == 3) {
-        run_phase3_demo();
+        run_phase3_demo(max_vehicles);
     } else {
         printf("Usage: %s [phase_number]\n", argv[0]);
         printf("  phase_number: 2 (single intersection) or 3 (dual intersections with IPC)\n");
+        printf("  Optional: specify max_vehicles as second argument (e.g., '%s 3 100')\n", argv[0]);
         printf("  Default: 3\n");
         return 1;
     }

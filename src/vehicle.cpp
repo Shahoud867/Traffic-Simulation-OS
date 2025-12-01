@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <cstring>
 #include "vehicle.hpp"
+#include "parking.hpp"
 #include "utils.hpp"
 
 const char* VehicleTypeNames[] = {
@@ -11,13 +12,23 @@ const char* VehicleTypeNames[] = {
 };
 
 const char* DirectionNames[] = {
-    "North", "South", "East", "West"
+    "North", "South", "East", "West", "Parking"
 };
 
 // Phase 2: Determine which quadrants a vehicle needs based on entry and destination
 // Returns number of quadrants needed, fills the quadrants array
 int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
     int count = 0;
+    
+    // Phase 4: Parking destination - vehicle goes to parking area (uses specific quadrants based on entry)
+    if (dest == PARKING) {
+        // Parking area accessible from any entry, use 1-2 quadrants based on entry
+        if (entry == NORTH) { quadrants[0] = NW; count = 1; }
+        else if (entry == SOUTH) { quadrants[0] = SW; count = 1; }
+        else if (entry == EAST) { quadrants[0] = NE; count = 1; }
+        else if (entry == WEST) { quadrants[0] = NW; count = 1; }
+        return count;
+    }
     
     // Straight paths (2 quadrants)
     if (entry == NORTH && dest == SOUTH) { 
@@ -108,14 +119,44 @@ int get_crossing_time(VehicleType type) {
     }
 }
 
+// Map vehicle type to priority level
+PriorityLevel get_priority_for_type(VehicleType type) {
+    if (type == AMBULANCE || type == FIRETRUCK) return PRIORITY_EMERGENCY;
+    if (type == BUS || type == TRACTOR) return PRIORITY_HEAVY;
+    return PRIORITY_NORMAL; // CAR, BIKE
+}
+
 void* vehicle_routine(void* arg) {
     VehicleArgs* vargs = (VehicleArgs*)arg;
     char log_msg[256];
 
     sprintf(log_msg, "Vehicle %d (%s) Arrived at %s intersection %s", 
-            vargs->id, VehicleTypeNames[vargs->type], 
-            vargs->controller_ctx->name, DirectionNames[vargs->entry]);
+        vargs->id, VehicleTypeNames[vargs->type], 
+        vargs->controller_ctx->name, DirectionNames[vargs->entry]);
     log_event(log_msg);
+
+    // Phase 4: Handle parking destination
+    bool going_to_park = (vargs->dest == PARKING);
+    bool parking_acquired = false;
+    
+    if (going_to_park) {
+        // Try to acquire parking BEFORE entering intersection
+        if (vargs->controller_ctx->parking != NULL) {
+            parking_acquired = try_acquire_parking(vargs->controller_ctx->parking, vargs->id);
+            
+            if (!parking_acquired) {
+                sprintf(log_msg, "Vehicle %d: Parking unavailable, exiting system", vargs->id);
+                log_event(log_msg);
+                delete vargs;
+                return NULL;
+            }
+        } else {
+            sprintf(log_msg, "Vehicle %d: No parking at %s, exiting", vargs->id, vargs->controller_ctx->name);
+            log_event(log_msg);
+            delete vargs;
+            return NULL;
+        }
+    }
 
     // Phase 2: Get required quadrants
     int quadrants[4];  // Max 3 quadrants needed
@@ -143,6 +184,25 @@ void* vehicle_routine(void* arg) {
 
     // Phase 2: Release quadrants
     release_quadrants(vargs->controller_ctx->state->quadrant_mutexes, quadrants, quad_count, vargs->id);
+
+    // Phase 4: If parking, simulate parking duration then leave
+    if (parking_acquired) {
+        sprintf(log_msg, "Vehicle %d: PARKING (duration: 3-7 seconds)", vargs->id);
+        log_event(log_msg);
+        
+        // Simulate parking duration (3-7 seconds)
+        int park_duration = (rand() % 5 + 3) * 1000000; // 3-7 seconds in microseconds
+        usleep(park_duration);
+        
+        // Leave parking
+        release_parking(vargs->controller_ctx->parking, vargs->id);
+        
+        sprintf(log_msg, "Vehicle %d: Left parking, exiting system", vargs->id);
+        log_event(log_msg);
+        
+        delete vargs;
+        return NULL;
+    }
 
     // Phase 3: Check if vehicle transits to other intersection
     if (vargs->controller_ctx->write_fd > 0) {  // IPC enabled
@@ -233,16 +293,25 @@ void* vehicle_generator_with_context(void* arg) {
     sprintf(start_msg, "Vehicle Generator started for Intersection %s", ctx->name);
     log_event(start_msg);
 
-    while (ctx->running) {
+    while (ctx->running && (ctx->max_vehicles <= 0 || vehicle_count < ctx->max_vehicles)) {
         VehicleArgs* vargs = new VehicleArgs();
         vargs->id = ++vehicle_count;
         vargs->type = (VehicleType)(rand() % 6);
         vargs->entry = (Direction)(rand() % 4);
+        vargs->arrival_time = time(NULL);
+        vargs->priority = get_priority_for_type(vargs->type);
         
-        // Generate destination different from entry
-        do {
-            vargs->dest = (Direction)(rand() % 4);
-        } while (vargs->dest == vargs->entry);
+        // Phase 4: Decide if vehicle goes to parking (30% chance for parkable vehicles at F10)
+        bool wants_parking = false;
+        if (ctx->parking != NULL && can_vehicle_park(vargs->type) && (rand() % 100 < 30)) {
+            wants_parking = true;
+            vargs->dest = PARKING;
+        } else {
+            // Generate destination different from entry
+            do {
+                vargs->dest = (Direction)(rand() % 4);
+            } while (vargs->dest == vargs->entry);
+        }
         
         vargs->intersection_id = ctx->id;
         vargs->controller_ctx = ctx;
@@ -258,6 +327,8 @@ void* vehicle_generator_with_context(void* arg) {
         // Random spawn interval: 0.5-1.5 seconds
         usleep((rand() % 1000 + 500) * 1000);
     }
+    // Stop controller after reaching max vehicles
+    ctx->running = false;
     
     sprintf(start_msg, "Vehicle Generator stopped for Intersection %s", ctx->name);
     log_event(start_msg);

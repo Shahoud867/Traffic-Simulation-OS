@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include "controller.hpp"
 #include "vehicle.hpp"
+#include "parking.hpp"
 #include "utils.hpp"
 
 // Phase 2: Initialize intersection state with quadrant mutexes
@@ -84,6 +85,8 @@ void* ipc_listener_routine(void* arg) {
                 vargs->entry = msg.entry_point;
                 vargs->dest = msg.destination;
                 vargs->intersection_id = ctx->id;
+                vargs->arrival_time = time(NULL);
+                vargs->priority = get_priority_for_type(vargs->type);
                 vargs->controller_ctx = ctx;
                 
                 pthread_t thread;
@@ -147,11 +150,21 @@ void run_controller_with_ipc(ControllerContext* ctx) {
     ctx->state = &state;
     ctx->running = true;
     
+    // Phase 4: Initialize parking lot for F10 only
+    ParkingLot parking;
+    if (strcmp(ctx->name, "F10") == 0) {
+        init_parking_lot(&parking, MAX_PARKING_SPOTS, MAX_WAITING_QUEUE);
+        ctx->parking = &parking;
+    } else {
+        ctx->parking = NULL;
+    }
+    
     // Create IPC listener thread if read_fd is valid
     if (ctx->read_fd > 0) {
         if (pthread_create(&ctx->ipc_listener_thread, NULL, ipc_listener_routine, ctx) != 0) {
             log_event("Failed to create IPC listener thread");
             cleanup_intersection_state(&state);
+            if (ctx->parking) cleanup_parking_lot(ctx->parking);
             exit(1);
         }
     }
@@ -161,6 +174,7 @@ void run_controller_with_ipc(ControllerContext* ctx) {
     if (pthread_create(&generator_thread, NULL, vehicle_generator_with_context, ctx) != 0) {
         log_event("Failed to create vehicle generator thread");
         cleanup_intersection_state(&state);
+        if (ctx->parking) cleanup_parking_lot(ctx->parking);
         exit(1);
     }
     
@@ -174,6 +188,9 @@ void run_controller_with_ipc(ControllerContext* ctx) {
     
     // Cleanup
     cleanup_intersection_state(&state);
+    if (ctx->parking) {
+        cleanup_parking_lot(ctx->parking);
+    }
     
     sprintf(log_msg, "Controller %s stopped", ctx->name);
     log_event(log_msg);

@@ -63,9 +63,9 @@ To stop the simulation, press `Ctrl+C`.
 │   ├── vehicle.h       # Vehicle logic prototypes
 │   └── utils.h         # Logging and helper functions
 ├── src/                # Source code
-│   ├── main.c          # Entry point, forks controller
-│   ├── controller.c    # Manages vehicle generator
-│   ├── vehicle.c       # Vehicle thread routine
-│   └── utils.c         # Logging implementation
+│   ├── main.cpp        # Entry point, forks controller
+│   ├── controller.cpp    # Manages vehicle generator
+│   ├── vehicle.cpp      # Vehicle thread routine
+│   └── utils.cpp        # Logging implementation
 └── logs/               # Generated log files
 ```

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -8,38 +9,175 @@
 #include "controller.hpp"
 #include "utils.hpp"
 
-pid_t f10_pid;
+// Global variables for signal handling
+pid_t f10_pid = -1;
+pid_t f11_pid = -1;
+int pipe_f10_to_f11[2] = {-1, -1};
+int pipe_f11_to_f10[2] = {-1, -1};
 
 void handle_sigint(int sig) {
     (void)sig;
     printf("\nCaught SIGINT, shutting down...\n");
+    log_event("SIGINT received - initiating shutdown");
+    
+    // Send shutdown signal through pipes if they exist
+    if (pipe_f10_to_f11[1] > 0) {
+        IPCMessage shutdown_msg;
+        shutdown_msg.type = SHUTDOWN;
+        write(pipe_f10_to_f11[1], &shutdown_msg, sizeof(IPCMessage));
+    }
+    if (pipe_f11_to_f10[1] > 0) {
+        IPCMessage shutdown_msg;
+        shutdown_msg.type = SHUTDOWN;
+        write(pipe_f11_to_f10[1], &shutdown_msg, sizeof(IPCMessage));
+    }
+    
+    // Kill child processes
     if (f10_pid > 0) {
         kill(f10_pid, SIGTERM);
         waitpid(f10_pid, NULL, 0);
     }
-    log_event("Simulation terminated.");
+    if (f11_pid > 0) {
+        kill(f11_pid, SIGTERM);
+        waitpid(f11_pid, NULL, 0);
+    }
+    
+    // Close all pipe ends
+    if (pipe_f10_to_f11[0] > 0) close(pipe_f10_to_f11[0]);
+    if (pipe_f10_to_f11[1] > 0) close(pipe_f10_to_f11[1]);
+    if (pipe_f11_to_f10[0] > 0) close(pipe_f11_to_f10[0]);
+    if (pipe_f11_to_f10[1] > 0) close(pipe_f11_to_f10[1]);
+    
+    log_event("Simulation terminated cleanly");
     exit(0);
 }
 
-int main() {
-    signal(SIGINT, handle_sigint);
+void run_phase2_demo() {
+    printf("=== Running Phase 2 Demo: Single Intersection with Quadrant Synchronization ===\n");
+    log_event("Phase 2 Demo Started");
     
-    log_event("Traffic Simulation Started");
+    // Run single intersection with quadrant mutexes
+    ControllerContext ctx;
+    strcpy(ctx.name, "F10");
+    ctx.id = INTERSECTION_F10;
+    ctx.write_fd = -1;  // No IPC
+    ctx.read_fd = -1;
+    ctx.running = true;
+    
+    run_controller_with_ipc(&ctx);
+}
 
+void run_phase3_demo() {
+    printf("=== Running Phase 3 Demo: Dual Intersections with IPC ===\n");
+    log_event("Phase 3 Demo Started");
+    
+    // Create bidirectional pipes
+    if (pipe(pipe_f10_to_f11) == -1 || pipe(pipe_f11_to_f10) == -1) {
+        perror("Pipe creation failed");
+        log_event("Failed to create pipes");
+        exit(1);
+    }
+    
+    log_event("Pipes created successfully");
+    
+    // Fork F10 controller
     f10_pid = fork();
     if (f10_pid < 0) {
-        perror("Fork failed");
+        perror("Fork failed for F10");
         exit(1);
-    } else if (f10_pid == 0) {
-        // Child Process: Controller F10
-        srand(time(NULL) ^ getpid()); // Seed RNG
-        run_controller(INTERSECTION_F10);
+    } 
+    else if (f10_pid == 0) {
+        // Child process F10
+        srand(time(NULL) ^ getpid());
+        
+        // Close unused pipe ends
+        close(pipe_f10_to_f11[0]);  // Close read end of pipe we write to
+        close(pipe_f11_to_f10[1]);  // Close write end of pipe we read from
+        
+        // Setup controller context
+        ControllerContext ctx;
+        strcpy(ctx.name, "F10");
+        ctx.id = INTERSECTION_F10;
+        ctx.write_fd = pipe_f10_to_f11[1];  // Write to F11
+        ctx.read_fd = pipe_f11_to_f10[0];   // Read from F11
+        
+        run_controller_with_ipc(&ctx);
+        
+        close(pipe_f10_to_f11[1]);
+        close(pipe_f11_to_f10[0]);
         exit(0);
     }
+    
+    // Fork F11 controller
+    f11_pid = fork();
+    if (f11_pid < 0) {
+        perror("Fork failed for F11");
+        kill(f10_pid, SIGTERM);
+        exit(1);
+    } 
+    else if (f11_pid == 0) {
+        // Child process F11
+        srand(time(NULL) ^ getpid());
+        
+        // Close unused pipe ends
+        close(pipe_f10_to_f11[1]);  // Close write end of pipe we read from
+        close(pipe_f11_to_f10[0]);  // Close read end of pipe we write to
+        
+        // Setup controller context
+        ControllerContext ctx;
+        strcpy(ctx.name, "F11");
+        ctx.id = INTERSECTION_F11;
+        ctx.write_fd = pipe_f11_to_f10[1];  // Write to F10
+        ctx.read_fd = pipe_f10_to_f11[0];   // Read from F10
+        
+        run_controller_with_ipc(&ctx);
+        
+        close(pipe_f11_to_f10[1]);
+        close(pipe_f10_to_f11[0]);
+        exit(0);
+    }
+    
+    // Parent process - close all pipe ends (children have their own copies)
+    close(pipe_f10_to_f11[0]);
+    close(pipe_f10_to_f11[1]);
+    close(pipe_f11_to_f10[0]);
+    close(pipe_f11_to_f10[1]);
+    
+    // Wait for both children
+    int status;
+    pid_t finished = waitpid(-1, &status, 0);
+    printf("Child process %d finished\n", finished);
+    
+    finished = waitpid(-1, &status, 0);
+    printf("Child process %d finished\n", finished);
+    
+    log_event("Phase 3 Demo Completed");
+}
 
-    // Parent Process
-    // Wait for child or signal
-    wait(NULL);
+int main(int argc, char* argv[]) {
+    signal(SIGINT, handle_sigint);
+    
+    printf("Traffic Simulation - OS Project\n");
+    printf("================================\n");
+    
+    // Check command line arguments
+    int phase = 3;  // Default to Phase 3
+    if (argc > 1) {
+        phase = atoi(argv[1]);
+    }
+    
+    log_event("=== Traffic Simulation Started ===");
+    
+    if (phase == 2) {
+        run_phase2_demo();
+    } else if (phase == 3) {
+        run_phase3_demo();
+    } else {
+        printf("Usage: %s [phase_number]\n", argv[0]);
+        printf("  phase_number: 2 (single intersection) or 3 (dual intersections with IPC)\n");
+        printf("  Default: 3\n");
+        return 1;
+    }
 
     return 0;
 }

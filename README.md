@@ -24,6 +24,12 @@ A multi-process, multi-threaded simulation of traffic flow across two intersecti
 - IPC message protocol supporting TRANSIT, EMERGENCY_CLEAR, SHUTDOWN, and ACK messages.
 - Dedicated IPC listener threads in each controller for real-time message processing.
 
+**Phase 4 Complete**: Parking lot management with semaphores:
+- Semaphore-based parking system with 10 spots and bounded waiting queue (capacity 5).
+- Two-level admission control using `sem_parking_spots` and `sem_waiting_queue` semaphores.
+- Vehicles acquire parking before crossing intersection to prevent blocking traffic flow.
+- Parking duration simulation (3-7 seconds) with proper resource cleanup and spot release.
+
 ## Prerequisites
 
 This project requires a POSIX-compliant environment (Linux).
@@ -55,10 +61,14 @@ sudo apt install build-essential libncurses-dev
 Execute the binary:
 ```bash
 # Run Phase 2 (Single Intersection with Quadrants)
-./bin/traffic_sim 2
+./bin/traffic_sim 2 
 
-# Run Phase 3 (Dual Intersections with IPC) - Default
+# Run Phase 3 (Dual Intersections with IPC + Parking)
 ./bin/traffic_sim 3
+
+# Optional: limit vehicles per intersection (second arg)
+# e.g., run Phase 3 and stop each controller after 50 vehicles
+./bin/traffic_sim 3 50
 ```
 
 To stop the simulation, press `Ctrl+C`.
@@ -72,22 +82,32 @@ To stop the simulation, press `Ctrl+C`.
 
 ```text
 .
-├── Makefile                        # Build script
-├── README.md                       # This file
-├── OS Simulation Project Plan.md   # Detailed phase-wise implementation plan
-├── bin/                            # Compiled binary
+├── Makefile
+├── README.md
+├── OS Simulation Project Plan.md
+├── OS Project.pdf
+├── COMPLIANCE_REPORT.md
+├── .gitignore
+├── bin
 │   └── traffic_sim
-├── include/                        # Header files
-│   ├── common.hpp                  # Shared structs, enums, and constants
-│   ├── controller.hpp              # Controller logic prototypes
-│   ├── vehicle.hpp                 # Vehicle logic prototypes
-│   └── utils.hpp                   # Logging and helper functions
-├── src/                            # Source code
-│   ├── main.cpp                    # Entry point, process forking, IPC setup
-│   ├── controller.cpp              # Controller logic, IPC listener, intersection state
-│   ├── vehicle.cpp                 # Vehicle threads, quadrant logic, transit handling
-│   └── utils.cpp                   # Logging implementation
-├── logs/                           # Generated log files
+├── include
+│   ├── common.hpp
+│   ├── controller.hpp
+│   ├── parking.hpp
+│   ├── utils.hpp
+│   └── vehicle.hpp
+├── logs
 │   └── traffic_sim.log
-└── obj/                            # Compiled object files
+├── obj
+│   ├── controller.o
+│   ├── main.o
+│   ├── parking.o
+│   ├── utils.o
+│   └── vehicle.o
+└── src
+   ├── controller.cpp
+   ├── main.cpp
+   ├── parking.cpp
+   ├── utils.cpp
+   └── vehicle.cpp
 ```

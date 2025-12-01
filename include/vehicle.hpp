@@ -13,6 +13,9 @@ void acquire_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehi
 void release_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehicle_id);
 int get_crossing_time(VehicleType type);
 
+// Priority mapping helper
+PriorityLevel get_priority_for_type(VehicleType type);
+
 // Phase 3: Vehicle generator with context
 void* vehicle_generator_with_context(void* arg);
 

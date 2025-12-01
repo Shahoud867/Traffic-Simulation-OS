@@ -220,22 +220,80 @@
 
 *   **Objectives**:
     *   Implement Semaphores: `Sem_Spots` (Init=10), `Sem_Queue` (Init=N).
-    *   Vehicles (Car/Bike/Tractor) attempting to park must wait for a spot.
+    *   Vehicles (Car/Bike/Tractor/Bus) attempting to park must wait for a spot.
+
+*   **Conceptual Explanation**:
+
+    **Semaphore-Based Parking System**:
+    The parking lot uses two POSIX semaphores to manage capacity and prevent unbounded waiting. The first semaphore (`sem_parking_spots`) represents available parking spaces (initialized to 10). The second semaphore (`sem_waiting_queue`) represents the maximum number of vehicles allowed to wait for parking (bounded queue, e.g., 5 slots).
+
+    **Two-Level Admission Control**:
+    - **Queue Semaphore**: Vehicles first acquire a waiting queue slot to prevent system overload
+    - **Spot Semaphore**: After entering queue, vehicle waits for actual parking spot availability
+    - **Queue Release**: Once spot is secured, vehicle releases its queue slot for others
+    
+    This ensures the system remains stable even under high parking demand.
+
+    **Parking Flow for Eligible Vehicles**:
+    1. Vehicle determines if it wants to park (Cars, Bikes, Tractors, Bus have parking capability)
+    2. Attempt to acquire waiting queue slot (non-blocking or with timeout)
+    3. If queue slot obtained, wait for parking spot availability
+    4. Release queue slot (now waiting for spot, not in queue)
+    5. Cross intersection with quadrant locks to reach parking area
+    6. Park for random duration (simulate shopping, business, etc.)
+    7. Exit parking, release spot semaphore
+    8. Continue journey or exit system
+
+    **Critical Safety Rules**:
+    - **Never hold intersection locks while waiting for parking**: Vehicles must secure parking availability BEFORE acquiring quadrant mutexes
+    - **Emergency vehicles bypass parking**: Ambulances and Firetrucks never interact with parking semaphores
+    - **Non-blocking intersection**: If parking is full and queue is full, vehicle routes away or exits rather than blocking traffic
+
+    **Integration with Existing Phases**:
+    - Parking lot is attached to F10 intersection only (F11 has no parking in basic implementation)
+    - Vehicles arriving at F10 can choose parking as destination
+    - Parking-bound vehicles still follow quadrant synchronization rules
+    - Emergency vehicle preemption takes priority over parking operations
+
+*   **Implementation Requirements**:
+    1. **Parking State Structure**: Create structure with two POSIX semaphores and parking statistics
+    2. **Semaphore Initialization**: Use `sem_init()` for both semaphores with appropriate initial values
+    3. **Vehicle Parking Decision**: Randomly assign some vehicles parking as destination (only parkable types)
+    4. **Queue Management**: Implement `sem_wait()` for queue, then spots, then `sem_post()` for queue
+    5. **Parking Duration**: Simulate parking time with sleep (e.g., 3-7 seconds)
+    6. **Spot Release**: Call `sem_post()` on spots semaphore when vehicle leaves parking
+    7. **Statistics Tracking**: Count parked vehicles, waiting vehicles, rejected vehicles
+
 *   **Tasks**:
-    1.  **`parking.cpp`**: Initialize semaphores.
-    2.  **`vehicle.cpp`**:
-        *   If `dest == PARKING`:
-            *   `sem_wait(&Sem_Queue)` (Enter waiting queue).
-            *   `sem_wait(&Sem_Spots)` (Wait for actual spot).
-            *   `sem_post(&Sem_Queue)` (Leave queue).
-            *   Enter Intersection (Acquire Quadrants) -> Park -> Sleep(park_time) -> Leave.
-            *   `sem_post(&Sem_Spots)` (Free spot).
+    1.  **`include/common.hpp`**: Add `ParkingLot` struct with semaphores, add PARKING direction enum
+    2.  **`include/parking.hpp`**: Create header with parking initialization and management functions
+    3.  **`src/parking.cpp`**: Initialize semaphores, implement parking request/release functions
+    4.  **`controller.cpp`**: Initialize parking lot for F10, pass to vehicle threads
+    5.  **`vehicle.cpp`**:
+        *   Check if vehicle type can park (not Ambulance/Firetruck)
+        *   If destination is PARKING, attempt to acquire queue slot
+        *   Wait for parking spot, release queue slot
+        *   Cross intersection to parking area
+        *   Simulate parking duration
+        *   Release parking spot and exit
+
 *   **Safety**: Ensure vehicles waiting for parking do not hold intersection locks.
+
 *   **Acceptance Criteria**:
-    *   Only 10 cars park at once.
-    *   Excess cars wait in the queue.
-    *   If queue is full, cars might reroute or wait (depending on spec).
-*   **Deliverables**: `src/parking.cpp`, updated `vehicle.cpp`.
+    *   Only 10 cars park at once (verified by semaphore count or counter).
+    *   Excess cars wait in the queue (up to queue limit).
+    *   If queue is full, cars reroute or exit gracefully without blocking.
+    *   Emergency vehicles never attempt to park.
+    *   Logs show parking acquisition, duration, and release.
+
+*   **Testing Scenarios**:
+    - Spawn 20+ parkable vehicles heading to F10 parking
+    - Verify maximum 10 parked simultaneously
+    - Check waiting queue doesn't exceed limit
+    - Confirm intersection never blocks due to parking waits
+    - Test emergency vehicle bypass of parking system
+
+*   **Deliverables**: `src/parking.cpp`, `include/parking.hpp`, updated `vehicle.cpp`, `common.hpp`, `controller.cpp`.
 
 ---
 
@@ -289,26 +347,37 @@
 
 ---
 
-### **Suggested File Structure**
+### **Current File Structure**
 ```text
 .
 ├── Makefile
 ├── README.md
-├── simulation.conf
+├── OS Simulation Project Plan.md
+├── OS Project.pdf
+├── COMPLIANCE_REPORT.md
+├── .gitignore
+├── bin
+│   └── traffic_sim
 ├── include
-│   ├── common.h      // Structs, Enums, Constants
-│   ├── ipc.h         // Pipe/Message definitions
-│   └── display.h     // Visualization prototypes
-├── src
-│   ├── main.cpp        // Entry point, Process Forking
-│   ├── controller.cpp  // Controller logic, Thread management
-│   ├── vehicle.cpp     // Vehicle behavior, State machine
-│   ├── parking.cpp     // Parking semaphore logic
-│   ├── ipc.cpp         // Pipe handling
-│   ├── utils.cpp       // Logging, Config parsing
-│   └── display.cpp     // Ncurses visualization
-└── logs
-    └── traffic_sim.log
+│   ├── common.hpp
+│   ├── controller.hpp
+│   ├── parking.hpp
+│   ├── utils.hpp
+│   └── vehicle.hpp
+├── logs
+│   └── traffic_sim.log
+├── obj
+│   ├── controller.o
+│   ├── main.o
+│   ├── parking.o
+│   ├── utils.o
+│   └── vehicle.o
+└── src
+    ├── controller.cpp
+    ├── main.cpp
+    ├── parking.cpp
+    ├── utils.cpp
+    └── vehicle.cpp
 ```
 
 ---

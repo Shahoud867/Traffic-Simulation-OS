@@ -4,7 +4,7 @@
 *   **Libraries**:
     *   `pthread` (Threads)
     *   `rt` (Real-time extensions for shared memory/semaphores if needed, though usually standard in glibc now)
-    *   `ncurses` (For text-based visualization)
+    *   `sfml-graphics`, `sfml-window`, `sfml-system` (For interactive visualization)
 *   **Environment**: Linux (WSL2 or Native).
 
 ---
@@ -15,7 +15,7 @@
 *   **Tasks**:
     1.  Create directory structure: `src/`, `include/`, `logs/`, `bin/`.
     2.  Create a `Makefile` that compiles source files into a binary named `traffic_sim`.
-    3.  Define `common.h` containing:
+    3.  Define `common.hpp` containing:
         *   `Vehicle` struct (id, type, entry_point, destination, state).
         *   `Constants` (Intersection IDs, Vehicle Types).
 *   **Deliverables**:
@@ -211,7 +211,7 @@
     *   Verify F11 receives exactly 5 vehicles.
     *   Verify vehicle IDs match in both logs.
 
-*   **Deliverables**: `src/ipc.cpp` (helper functions), updated `main.cpp`, `controller.cpp`, `vehicle.cpp`, `common.hpp`.
+*   **Deliverables**: updated `main.cpp`, `controller.cpp`, `vehicle.cpp`, `include/common.hpp` (IPC implemented across these files; no separate `src/ipc.cpp` file).
 
 ---
 
@@ -314,7 +314,7 @@
             *   Once Emergency vehicle passes, `EMERGENCY_MODE = 0`.
 *   **Acceptance Criteria**:
     *   When Ambulance approaches F10->F11, F11 stops spawning/moving local traffic until Ambulance passes.
-*   **Deliverables**: Updated `controller.cpp`, `vehicle.cpp`, `ipc.cpp`.
+*   **Deliverables**: Updated `controller.cpp`, `vehicle.cpp` (IPC functionality implemented inside controller/vehicle code; no separate `ipc.cpp`).
 
 ---
 
@@ -322,17 +322,24 @@
 **Goal**: Make it look good.
 
 *   **Objectives**:
-    *   Use `ncurses` to draw a map of F10 and F11.
-    *   Show vehicles as characters (A, F, B, C) moving across the grid.
-    *   Show Semaphore states (Parking: [|||||.....] 5/10).
+    *   Use **SFML** to render a 2D map of intersections F10 and F11.
+    *   Represent vehicles with colored sprites/icons (A, F, B, C, etc.) moving smoothly along lanes.
+    *   Display parking occupancy, semaphore states, and emergency preemption status via overlay HUD widgets.
 *   **Tasks**:
     1.  **`display.cpp`**:
-        *   Setup ncurses window.
-        *   Map vehicle coordinates to screen coordinates.
-        *   Refresh loop (every 100ms).
+        *   Initialize an SFML window and main render loop (≈60 FPS).
+        *   Maintain a shared snapshot of simulation state for rendering (thread-safe access).
+        *   Draw roads, vehicles, parking lots, and UI panels using SFML shapes/text.
+        *   Handle close events and graceful shutdown signals.
+    
+    **Implementation notes**:
+    * The SFML visualizer is implemented as a separate binary (`bin/traffic_visualizer`).
+    * For convenience the visualizer uses `std::vector`/`std::map` to manage textures, sprites and UI lists; this is limited to the visualization layer and does not change the requirement that the core simulator (Phases 0–4) use C-style arrays and POSIX primitives.
+    * Visual improvements implemented include: PNG sprite support with near-white alpha masking to remove halos, background audio playback if music files are found, legend/icons, and UI panel repositioning (parking bottom-left, state indicators bottom-right).
 *   **Acceptance Criteria**:
-    *   Visual representation matches the log events.
-*   **Deliverables**: `src/display.cpp`.
+    *   SFML window visualizes vehicle movement consistently with log events.
+    *   UI updates in real time (<200 ms lag) and handles at least 60 simultaneous vehicles without noticeable stutter.
+*   **Deliverables**: `src/display.cpp`, updated build instructions for SFML.
 
 ---
 
@@ -340,7 +347,7 @@
 **Goal**: Cleanup, Config parsing, and Stress Test.
 
 *   **Tasks**:
-    1.  **`config.cpp`**: Parse `simulation.conf` (INI format) for spawn rates, parking capacity.
+    1.  **Configuration parsing (optional)**: support reading `simulation.conf` (INI format) for spawn rates and parking capacity (no separate `config.cpp` file currently exists; this can be implemented as lightweight parsing helpers if desired).
     2.  **Shutdown**: Ensure `SIGINT` frees all memory, destroys mutexes/semaphores, and kills processes.
     3.  **Documentation**: README with build/run instructions.
 *   **Deliverables**: `simulation.conf`, `README.md`, Final Codebase.
@@ -357,10 +364,12 @@
 ├── COMPLIANCE_REPORT.md
 ├── .gitignore
 ├── bin
-│   └── traffic_sim
+│   ├── traffic_sim
+│   └── traffic_visualizer
 ├── include
 │   ├── common.hpp
 │   ├── controller.hpp
+│   ├── display.hpp
 │   ├── parking.hpp
 │   ├── utils.hpp
 │   └── vehicle.hpp
@@ -371,15 +380,21 @@
 │   ├── main.o
 │   ├── parking.o
 │   ├── utils.o
-│   └── vehicle.o
+│   ├── vehicle.o
+│   ├── display.o
+│   └── visualizer_main.o
+├── resources
+│   └── (icons,sprites,music)
 └── src
     ├── controller.cpp
+    ├── display.cpp
     ├── main.cpp
     ├── parking.cpp
     ├── utils.cpp
-    └── vehicle.cpp
+    ├── vehicle.cpp
+    └── visualizer_main.cpp
 ```
 
 ---
 
-**Submit for Phase 1:** `src/main.cpp, src/controller.cpp, src/vehicle.cpp, src/utils.cpp, include/common.h, Makefile`
+**Submit for Phase 1:** `src/main.cpp, src/controller.cpp, src/vehicle.cpp, src/utils.cpp, include/common.hpp, Makefile`

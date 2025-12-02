@@ -3,16 +3,16 @@
 #include "parking.hpp"
 #include "utils.hpp"
 
-// Initialize parking lot with semaphores
+//Initialize parking lot with semaphores
 void init_parking_lot(ParkingLot* parking, int spots, int queue_capacity) {
     parking->total_spots = spots;
     parking->queue_capacity = queue_capacity;
     parking->parked_count = 0;
     parking->waiting_count = 0;
     
-    // Initialize semaphores
-    sem_init(&parking->sem_parking_spots, 0, spots);
-    sem_init(&parking->sem_waiting_queue, 0, queue_capacity);
+    //Initialize semaphores
+    sem_init(&parking->sem_parking_spots,0,spots);
+    sem_init(&parking->sem_waiting_queue,0,queue_capacity);
     
     pthread_mutex_init(&parking->stats_lock, NULL);
     
@@ -22,7 +22,7 @@ void init_parking_lot(ParkingLot* parking, int spots, int queue_capacity) {
     log_event(log_msg);
 }
 
-// Cleanup parking lot resources
+//Cleanup parking lot resources
 void cleanup_parking_lot(ParkingLot* parking) {
     sem_destroy(&parking->sem_parking_spots);
     sem_destroy(&parking->sem_waiting_queue);
@@ -31,16 +31,16 @@ void cleanup_parking_lot(ParkingLot* parking) {
     log_event("Parking lot cleaned up");
 }
 
-// Check if vehicle type can park (Emergency vehicles don't park)
+//Check if vehicle type can park (Emergency vehicles don't park)
 bool can_vehicle_park(VehicleType type) {
-    return (type == CAR || type == BIKE || type == TRACTOR || type == BUS);
+    return (type==CAR || type==BIKE || type==TRACTOR || type==BUS);
 }
 
-// Try to acquire parking (returns true if successful)
+//Try to acquire parking (returns true if successful)
 bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
     char log_msg[256];
     
-    // Try to enter waiting queue (non-blocking check)
+    //Try to enter waiting queue (non-blocking check)
     int queue_val;
     sem_getvalue(&parking->sem_waiting_queue, &queue_val);
     
@@ -50,13 +50,13 @@ bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
         return false;
     }
     
-    // Acquire waiting queue slot
+    //Acquire waiting queue slot
     sprintf(log_msg, "Vehicle %d: Entering parking waiting queue", vehicle_id);
     log_event(log_msg);
     
     sem_wait(&parking->sem_waiting_queue);
     
-    // Update waiting count
+    //Update waiting count
     pthread_mutex_lock(&parking->stats_lock);
     parking->waiting_count++;
     pthread_mutex_unlock(&parking->stats_lock);
@@ -64,13 +64,13 @@ bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
     sprintf(log_msg, "Vehicle %d: Waiting for parking spot...", vehicle_id);
     log_event(log_msg);
     
-    // Wait for actual parking spot
+    //Wait for actual parking spot
     sem_wait(&parking->sem_parking_spots);
     
-    // Got parking spot, release queue slot
+    //Got parking spot, release queue slot
     sem_post(&parking->sem_waiting_queue);
     
-    // Update counts
+    //Update counts
     pthread_mutex_lock(&parking->stats_lock);
     parking->waiting_count--;
     parking->parked_count++;
@@ -83,7 +83,7 @@ bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
     return true;
 }
 
-// Release parking spot
+//Release parking spot
 void release_parking(ParkingLot* parking, int vehicle_id) {
     pthread_mutex_lock(&parking->stats_lock);
     parking->parked_count--;
@@ -98,7 +98,7 @@ void release_parking(ParkingLot* parking, int vehicle_id) {
     log_event(log_msg);
 }
 
-// Get parking statistics
+//Get parking statistics
 void get_parking_stats(ParkingLot* parking, int* parked, int* waiting) {
     pthread_mutex_lock(&parking->stats_lock);
     *parked = parking->parked_count;

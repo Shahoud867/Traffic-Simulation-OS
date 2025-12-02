@@ -110,12 +110,13 @@
 
 ## ❌ Prohibited Technologies - Verification
 
-### STL Containers (FORBIDDEN)
+### STL Containers (FORBIDDEN in core simulation sources)
 **Checked for:** `std::vector`, `std::map`, `std::set`, `std::queue`, `std::list`, `std::deque`
 
-**Result:** ✅ **ZERO occurrences found**
-- No `#include <vector>`, `<algorithm>`, `<map>`, `<set>`, `<queue>`, etc.
-- All data structures use C-style arrays
+**Result:** Mixed — ZERO occurrences in the core simulation (Phases 0-4) but present in the visualization module (Phase 6).
+- The core simulation sources (the files that implement Phases 0-4) deliberately avoid STL containers and use C-style arrays and POSIX primitives as required.
+- The SFML-based visualizer (`src/display.cpp` and related visualizer files) intentionally uses `std::vector` and `std::map` for convenience when handling textures, sprites, and UI state. These uses are limited to the visualization component and do not affect the core simulator logic or the required use of POSIX APIs.
+- Files where STL containers are present (examples): `src/display.cpp` (uses `std::vector`, `std::map` for vehicle/texture state and lists).
 
 ### STL Algorithms (FORBIDDEN)
 **Checked for:** `std::sort`, `std::find`, `std::copy`, `#include <algorithm>`
@@ -165,16 +166,16 @@
 3. ✓ Mutex-based synchronization for quadrants
 4. ✓ Semaphore-based parking management
 5. ✓ Bidirectional IPC using pipes
-6. ✓ C-style arrays (NO std::vector)
+6. ✓ C-style arrays in core simulator (NO std::vector in Phases 0-4)
 7. ✓ Manual sorting (NO std::algorithm)
 
 **What We DID NOT Use (as required):**
-- ✗ No `std::vector`
+-- ✗ No `std::vector` in core simulator sources (Phase 0-4). `std::vector` and `std::map` are used in the optional SFML visualizer (`src/display.cpp`) only.
 - ✗ No `std::algorithm`
 - ✗ No `std::map`, `std::set`, `std::queue`
 - ✗ No STL containers of any kind
 - ✗ No high-level threading libraries (only `pthread`)
 
 **Conclusion:**
-All implementations from Phase 0 to Phase 4 strictly adhere to the project requirements. We use ONLY POSIX primitives and C-style programming as specified in the project plan. No forbidden technologies (vectors, algorithms, STL containers) were used.
+All implementations from Phase 0 to Phase 4 strictly adhere to the project requirements. We use ONLY POSIX primitives and C-style programming as specified in the project plan. No forbidden technologies (vectors(except sfml), algorithms, STL containers) were used.
 

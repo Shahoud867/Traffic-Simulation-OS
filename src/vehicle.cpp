@@ -15,14 +15,14 @@ const char* DirectionNames[] = {
     "North", "South", "East", "West", "Parking"
 };
 
-// Phase 2: Determine which quadrants a vehicle needs based on entry and destination
-// Returns number of quadrants needed, fills the quadrants array
+//Phase 2: Determine which quadrants a vehicle needs based on entry and destination
+//Returns number of quadrants needed, fills the quadrants array
 int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
     int count = 0;
     
-    // Phase 4: Parking destination - vehicle goes to parking area (uses specific quadrants based on entry)
+    //Phase 4: Parking destination - vehicle goes to parking area (uses specific quadrants based on entry)
     if (dest == PARKING) {
-        // Parking area accessible from any entry, use 1-2 quadrants based on entry
+    //Parking area accessible from any entry, use 1-2 quadrants based on entry
         if (entry == NORTH) { quadrants[0] = NW; count = 1; }
         else if (entry == SOUTH) { quadrants[0] = SW; count = 1; }
         else if (entry == EAST) { quadrants[0] = NE; count = 1; }
@@ -30,7 +30,7 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
         return count;
     }
     
-    // Straight paths (2 quadrants)
+    //Straight paths (2 quadrants)
     if (entry == NORTH && dest == SOUTH) { 
         quadrants[0] = NW; quadrants[1] = SW; count = 2;
     }
@@ -44,7 +44,7 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
         quadrants[0] = SE; quadrants[1] = SW; count = 2;
     }
     
-    // Right turns (1 quadrant)
+    //Right turns (1 quadrant)
     else if (entry == NORTH && dest == EAST) { 
         quadrants[0] = NE; count = 1;
     }
@@ -58,7 +58,7 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
         quadrants[0] = NW; count = 1;
     }
     
-    // Left turns (3 quadrants)
+    //Left turns (3 quadrants)
     else if (entry == NORTH && dest == WEST) { 
         quadrants[0] = NW; quadrants[1] = SE; quadrants[2] = SW; count = 3;
     }
@@ -72,7 +72,7 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
         quadrants[0] = NE; quadrants[1] = NW; quadrants[2] = SW; count = 3;
     }
     
-    // Sort quadrants to ensure consistent lock ordering (bubble sort)
+    //Sort quadrants to ensure consistent lock ordering (bubble sort)
     for (int i = 0; i < count - 1; i++) {
         for (int j = 0; j < count - i - 1; j++) {
             if (quadrants[j] > quadrants[j + 1]) {
@@ -86,7 +86,7 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
     return count;
 }
 
-// Phase 2: Acquire quadrants in order
+//Phase 2: Acquire quadrants in order
 void acquire_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehicle_id) {
     for (int i = 0; i < count; i++) {
         pthread_mutex_lock(&mutexes[quads[i]]);
@@ -96,7 +96,7 @@ void acquire_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehi
     }
 }
 
-// Phase 2: Release quadrants
+//Phase 2: Release quadrants
 void release_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehicle_id) {
     for (int i = 0; i < count; i++) {
         pthread_mutex_unlock(&mutexes[quads[i]]);
@@ -106,7 +106,7 @@ void release_quadrants(pthread_mutex_t* mutexes, int* quads, int count, int vehi
     }
 }
 
-// Phase 2: Get crossing time based on vehicle type (in milliseconds)
+//Phase 2: Get crossing time based on vehicle type (in milliseconds)
 int get_crossing_time(VehicleType type) {
     switch(type) {
         case AMBULANCE: return 1000;  // 1 second (fastest)
@@ -119,7 +119,7 @@ int get_crossing_time(VehicleType type) {
     }
 }
 
-// Map vehicle type to priority level
+//Map vehicle type to priority level
 PriorityLevel get_priority_for_type(VehicleType type) {
     if (type == AMBULANCE || type == FIRETRUCK) return PRIORITY_EMERGENCY;
     if (type == BUS || type == TRACTOR) return PRIORITY_HEAVY;
@@ -135,43 +135,90 @@ void* vehicle_routine(void* arg) {
         vargs->controller_ctx->name, DirectionNames[vargs->entry]);
     log_event(log_msg);
 
-    // Phase 4: Handle parking destination
+    //Count this thread as active for the controller so the controller can
+    //wait for all spawned vehicle threads to finish before cleaning up.
+    pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+    vargs->controller_ctx->state->active_vehicle_count++;
+    pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
+
+    //Phase 5: Check if this is an emergency vehicle
+    bool is_emergency = (vargs->type == AMBULANCE || vargs->type == FIRETRUCK);
+    
+    //Phase 5: Normal vehicles must wait if emergency mode is active
+    if (!is_emergency) {
+        pthread_mutex_lock(&vargs->controller_ctx->state->emergency_lock);
+        while (vargs->controller_ctx->state->emergency_mode) {
+            sprintf(log_msg, "Vehicle %d (%s) WAITING - Emergency mode active at %s",
+                    vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
+            log_event(log_msg);
+            pthread_cond_wait(&vargs->controller_ctx->state->emergency_cond,
+                             &vargs->controller_ctx->state->emergency_lock);
+        }
+        pthread_mutex_unlock(&vargs->controller_ctx->state->emergency_lock);
+    } else {
+        sprintf(log_msg, "Vehicle %d (%s) EMERGENCY VEHICLE - Priority passage at %s",
+                vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
+        log_event(log_msg);
+    }
+
+    //Phase 4: Handle parking destination
     bool going_to_park = (vargs->dest == PARKING);
     bool parking_acquired = false;
     
     if (going_to_park) {
-        // Try to acquire parking BEFORE entering intersection
+    //Try to acquire parking BEFORE entering intersection
         if (vargs->controller_ctx->parking != NULL) {
             parking_acquired = try_acquire_parking(vargs->controller_ctx->parking, vargs->id);
             
             if (!parking_acquired) {
                 sprintf(log_msg, "Vehicle %d: Parking unavailable, exiting system", vargs->id);
                 log_event(log_msg);
+                //decrement active vehicle count before exiting
+                pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+                vargs->controller_ctx->state->active_vehicle_count--;
+                if (vargs->controller_ctx->state->active_vehicle_count <= 0) {
+                    vargs->controller_ctx->state->active_vehicle_count = 0;
+                    pthread_cond_signal(&vargs->controller_ctx->state->vehicles_empty_cond);
+                }
+                pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
                 delete vargs;
                 return NULL;
             }
         } else {
             sprintf(log_msg, "Vehicle %d: No parking at %s, exiting", vargs->id, vargs->controller_ctx->name);
             log_event(log_msg);
+            //decrement active vehicle count before exiting
+            pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+            vargs->controller_ctx->state->active_vehicle_count--;
+            if (vargs->controller_ctx->state->active_vehicle_count <= 0) {
+                vargs->controller_ctx->state->active_vehicle_count = 0;
+                pthread_cond_signal(&vargs->controller_ctx->state->vehicles_empty_cond);
+            }
+            pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
             delete vargs;
             return NULL;
         }
     }
 
-    // Phase 2: Get required quadrants
-    int quadrants[4];  // Max 3 quadrants needed
+    //Phase 2: Get required quadrants
+    int quadrants[4];  //Max 3 quadrants needed
     int quad_count = get_required_quadrants(vargs->entry, vargs->dest, quadrants);
     
     sprintf(log_msg, "Vehicle %d requesting %d quadrant(s) for %s->%s", 
             vargs->id, quad_count, DirectionNames[vargs->entry], DirectionNames[vargs->dest]);
     log_event(log_msg);
 
-    // Phase 2: Acquire quadrants (safe crossing)
+    //Phase 2: Acquire quadrants (safe crossing)
     acquire_quadrants(vargs->controller_ctx->state->quadrant_mutexes, quadrants, quad_count, vargs->id);
     
     sprintf(log_msg, "Vehicle %d (%s) ENTERING intersection %s", 
             vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
     log_event(log_msg);
+
+    // Mark that a vehicle is now inside the intersection
+    pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+    vargs->controller_ctx->state->vehicles_in_intersection++;
+    pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
 
     // Simulate crossing time based on vehicle type
     int crossing_time = get_crossing_time(vargs->type);
@@ -182,30 +229,66 @@ void* vehicle_routine(void* arg) {
             vargs->controller_ctx->name, DirectionNames[vargs->dest]);
     log_event(log_msg);
 
-    // Phase 2: Release quadrants
+    //Phase 2: Release quadrants
     release_quadrants(vargs->controller_ctx->state->quadrant_mutexes, quadrants, quad_count, vargs->id);
 
-    // Phase 4: If parking, simulate parking duration then leave
+    //Mark vehicle leaving intersection
+    pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+    vargs->controller_ctx->state->vehicles_in_intersection--;
+    if (vargs->controller_ctx->state->vehicles_in_intersection <= 0) {
+        vargs->controller_ctx->state->vehicles_in_intersection = 0;
+        // Signal any waiter that intersection is empty
+        pthread_cond_signal(&vargs->controller_ctx->state->vehicles_empty_cond);
+    }
+    pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
+
+    //Phase 5: If this is an emergency transit vehicle, send EMERGENCY_PASSED to source intersection
+    if (is_emergency && vargs->is_transit_vehicle && vargs->controller_ctx->write_fd > 0) {
+        IPCMessage passed_msg;
+        passed_msg.type = EMERGENCY_PASSED;
+        passed_msg.vehicle_id = vargs->id;
+        passed_msg.v_type = vargs->type;
+        passed_msg.timestamp = time(NULL);
+        
+        ssize_t written = write(vargs->controller_ctx->write_fd, &passed_msg, sizeof(IPCMessage));
+        if (written > 0) {
+            sprintf(log_msg, "Vehicle %d (%s) sent EMERGENCY_PASSED to %s - clearing emergency mode", 
+                    vargs->id, VehicleTypeNames[vargs->type],
+                    strcmp(vargs->controller_ctx->name, "F10") == 0 ? "F11" : "F10");
+            log_event(log_msg);
+        }
+    }
+
+    //Phase 4: If parking, simulate parking duration then leave
     if (parking_acquired) {
         sprintf(log_msg, "Vehicle %d: PARKING (duration: 3-7 seconds)", vargs->id);
         log_event(log_msg);
         
-        // Simulate parking duration (3-7 seconds)
+    //Simulate parking duration (3-7 seconds)
         int park_duration = (rand() % 5 + 3) * 1000000; // 3-7 seconds in microseconds
         usleep(park_duration);
         
-        // Leave parking
+    //Leave parking
         release_parking(vargs->controller_ctx->parking, vargs->id);
         
         sprintf(log_msg, "Vehicle %d: Left parking, exiting system", vargs->id);
         log_event(log_msg);
         
+    //decrement active vehicle count before exiting
+        pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+        vargs->controller_ctx->state->active_vehicle_count--;
+        if (vargs->controller_ctx->state->active_vehicle_count <= 0) {
+            vargs->controller_ctx->state->active_vehicle_count = 0;
+            pthread_cond_signal(&vargs->controller_ctx->state->vehicles_empty_cond);
+        }
+        pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
+
         delete vargs;
         return NULL;
     }
 
-    // Phase 3: Check if vehicle transits to other intersection
-    if (vargs->controller_ctx->write_fd > 0) {  // IPC enabled
+    //Phase 3: Check if vehicle transits to other intersection
+    if (vargs->controller_ctx->write_fd > 0) {  //IPC enabled
         bool should_transit = false;
         Direction new_entry = NORTH;
         
@@ -219,12 +302,32 @@ void* vehicle_routine(void* arg) {
         }
         
         if (should_transit) {
+            //Phase 5: Emergency vehicles send EMERGENCY_CLEAR signal BEFORE transit
+            if (is_emergency) {
+                IPCMessage clear_msg;
+                clear_msg.type = EMERGENCY_CLEAR;
+                clear_msg.vehicle_id = vargs->id;
+                clear_msg.v_type = vargs->type;
+                clear_msg.entry_point = new_entry;
+                clear_msg.destination = vargs->dest;
+                clear_msg.timestamp = time(NULL);
+                
+                ssize_t written = write(vargs->controller_ctx->write_fd, &clear_msg, sizeof(IPCMessage));
+                if (written > 0) {
+                    sprintf(log_msg, "Vehicle %d (%s) sent EMERGENCY_CLEAR to %s", 
+                            vargs->id, VehicleTypeNames[vargs->type],
+                            strcmp(vargs->controller_ctx->name, "F10") == 0 ? "F11" : "F10");
+                    log_event(log_msg);
+                }
+            }
+            
+            //Send TRANSIT message
             IPCMessage msg;
             msg.type = TRANSIT;
             msg.vehicle_id = vargs->id;
             msg.v_type = vargs->type;
             msg.entry_point = new_entry;
-            // Continue in same direction after transit
+            //Continue in same direction after transit
             msg.destination = vargs->dest;
             msg.timestamp = time(NULL);
             
@@ -239,6 +342,15 @@ void* vehicle_routine(void* arg) {
                 log_event(log_msg);
             }
         } else {
+            //Phase 5: Emergency vehicle exiting system - send EMERGENCY_PASSED to clear mode
+            //(This applies when emergency vehicle exits without transiting to another intersection)
+            if (is_emergency) {
+                //Clear emergency mode at current intersection
+                pthread_mutex_lock(&vargs->controller_ctx->state->emergency_lock);
+                //Note: Emergency mode for local intersection is handled by condition in main routine
+                pthread_mutex_unlock(&vargs->controller_ctx->state->emergency_lock);
+            }
+            
             sprintf(log_msg, "Vehicle %d exited the system from %s", 
                     vargs->id, vargs->controller_ctx->name);
             log_event(log_msg);
@@ -247,6 +359,16 @@ void* vehicle_routine(void* arg) {
         sprintf(log_msg, "Vehicle %d exited the system", vargs->id);
         log_event(log_msg);
     }
+
+    //decrement active vehicle count for normal exit
+    pthread_mutex_lock(&vargs->controller_ctx->state->count_lock);
+    vargs->controller_ctx->state->active_vehicle_count--;
+    (void)0; //no-op placeholder to avoid unused-value issues
+    if (vargs->controller_ctx->state->active_vehicle_count <= 0) {
+        vargs->controller_ctx->state->active_vehicle_count = 0;
+        pthread_cond_signal(&vargs->controller_ctx->state->vehicles_empty_cond);
+    }
+    pthread_mutex_unlock(&vargs->controller_ctx->state->count_lock);
 
     delete vargs;
     return NULL;
@@ -284,7 +406,7 @@ void* vehicle_generator(void* arg) {
     return NULL;
 }
 
-// Phase 3: Vehicle generator with controller context
+//Phase 3: Vehicle generator with controller context
 void* vehicle_generator_with_context(void* arg) {
     ControllerContext* ctx = (ControllerContext*)arg;
     int vehicle_count = 0;
@@ -315,6 +437,7 @@ void* vehicle_generator_with_context(void* arg) {
         
         vargs->intersection_id = ctx->id;
         vargs->controller_ctx = ctx;
+        vargs->is_transit_vehicle = false;  // Phase 5: Locally spawned, not a transit vehicle
 
         pthread_t tid;
         if (pthread_create(&tid, NULL, vehicle_routine, vargs) != 0) {
@@ -322,6 +445,10 @@ void* vehicle_generator_with_context(void* arg) {
             delete vargs;
         } else {
             pthread_detach(tid);
+            if (wants_parking) {
+                sprintf(start_msg, "Vehicle %d requested parking at %s", vargs->id, ctx->name);
+                log_event(start_msg);
+            }
         }
 
         // Random spawn interval: 0.5-1.5 seconds

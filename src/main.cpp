@@ -9,18 +9,21 @@
 #include "controller.hpp"
 #include "utils.hpp"
 
-// Global variables for signal handling
+//Global variables for signal handling
 pid_t f10_pid = -1;
 pid_t f11_pid = -1;
-int pipe_f10_to_f11[2] = {-1, -1};
-int pipe_f11_to_f10[2] = {-1, -1};
+int pipe_f10_to_f11[2] = {-1,-1};
+int pipe_f11_to_f10[2] = {-1,-1};
 
 void handle_sigint(int sig) {
     (void)sig;
-    printf("\nCaught SIGINT, shutting down...\n");
+    //Only print to console if not running in QUIET mode
+    if (getenv("QUIET") == NULL) {
+        printf("\nCaught SIGINT, shutting down...\n");
+    }
     log_event("SIGINT received - initiating shutdown");
     
-    // Send shutdown signal through pipes if they exist
+    //Send shutdown signal through pipes if they exist
     if (pipe_f10_to_f11[1] > 0) {
         IPCMessage shutdown_msg;
         shutdown_msg.type = SHUTDOWN;
@@ -32,7 +35,7 @@ void handle_sigint(int sig) {
         write(pipe_f11_to_f10[1], &shutdown_msg, sizeof(IPCMessage));
     }
     
-    // Kill child processes
+    //Kill child processes
     if (f10_pid > 0) {
         kill(f10_pid, SIGTERM);
         waitpid(f10_pid, NULL, 0);
@@ -42,7 +45,7 @@ void handle_sigint(int sig) {
         waitpid(f11_pid, NULL, 0);
     }
     
-    // Close all pipe ends
+    //Close all pipe ends
     if (pipe_f10_to_f11[0] > 0) close(pipe_f10_to_f11[0]);
     if (pipe_f10_to_f11[1] > 0) close(pipe_f10_to_f11[1]);
     if (pipe_f11_to_f10[0] > 0) close(pipe_f11_to_f10[0]);
@@ -53,26 +56,30 @@ void handle_sigint(int sig) {
 }
 
 void run_phase2_demo(int max_vehicles) {
-    printf("=== Running Phase 2 Demo: Single Intersection with Quadrant Synchronization ===\n");
+    if (getenv("QUIET") == NULL) {
+        printf("=== Running Phase 2 Demo: Single Intersection with Quadrant Synchronization ===\n");
+    }
     log_event("Phase 2 Demo Started");
-    
-    // Run single intersection with quadrant mutexes
+
+    //Run single intersection with quadrant mutexes
     ControllerContext ctx;
-    strcpy(ctx.name, "F10");
+    strcpy(ctx.name,"F10");
     ctx.id = INTERSECTION_F10;
-    ctx.write_fd = -1;  // No IPC
+    ctx.write_fd = -1;  //No IPC
     ctx.read_fd = -1;
     ctx.running = true;
     ctx.max_vehicles = max_vehicles;
-    
+
     run_controller_with_ipc(&ctx);
 }
 
 void run_phase3_demo(int max_vehicles) {
-    printf("=== Running Phase 3 Demo: Dual Intersections with IPC ===\n");
+    if (getenv("QUIET") == NULL) {
+        printf("=== Running Phase 3 Demo: Dual Intersections with IPC ===\n");
+    }
     log_event("Phase 3 Demo Started");
-    
-    // Create bidirectional pipes
+
+    //Create bidirectional pipes
     if (pipe(pipe_f10_to_f11) == -1 || pipe(pipe_f11_to_f10) == -1) {
         perror("Pipe creation failed");
         log_event("Failed to create pipes");
@@ -149,10 +156,10 @@ void run_phase3_demo(int max_vehicles) {
     // Wait for both children
     int status;
     pid_t finished = waitpid(-1, &status, 0);
-    printf("Child process %d finished\n", finished);
-    
+    if (getenv("QUIET") == NULL) printf("Child process %d finished\n", finished);
+
     finished = waitpid(-1, &status, 0);
-    printf("Child process %d finished\n", finished);
+    if (getenv("QUIET") == NULL) printf("Child process %d finished\n", finished);
     
     log_event("Phase 3 Demo Completed");
 }
@@ -160,8 +167,10 @@ void run_phase3_demo(int max_vehicles) {
 int main(int argc, char* argv[]) {
     signal(SIGINT, handle_sigint);
     
-    printf("Traffic Simulation - OS Project\n");
-    printf("================================\n");
+    if (getenv("QUIET") == NULL) {
+        printf("Traffic Simulation - OS Project\n");
+        printf("================================\n");
+    }
     
     // Check command line arguments
     int phase = 3;  // Default to Phase 3

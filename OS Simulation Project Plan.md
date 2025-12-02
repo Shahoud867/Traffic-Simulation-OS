@@ -4,7 +4,7 @@
 *   **Libraries**:
     *   `pthread` (Threads)
     *   `rt` (Real-time extensions for shared memory/semaphores if needed, though usually standard in glibc now)
-    *   `ncurses` (For text-based visualization)
+    *   `sfml-graphics`, `sfml-window`, `sfml-system` (For interactive visualization)
 *   **Environment**: Linux (WSL2 or Native).
 
 ---
@@ -322,17 +322,19 @@
 **Goal**: Make it look good.
 
 *   **Objectives**:
-    *   Use `ncurses` to draw a map of F10 and F11.
-    *   Show vehicles as characters (A, F, B, C) moving across the grid.
-    *   Show Semaphore states (Parking: [|||||.....] 5/10).
+    *   Use **SFML** to render a 2D map of intersections F10 and F11.
+    *   Represent vehicles with colored sprites/icons (A, F, B, C, etc.) moving smoothly along lanes.
+    *   Display parking occupancy, semaphore states, and emergency preemption status via overlay HUD widgets.
 *   **Tasks**:
     1.  **`display.cpp`**:
-        *   Setup ncurses window.
-        *   Map vehicle coordinates to screen coordinates.
-        *   Refresh loop (every 100ms).
+        *   Initialize an SFML window and main render loop (≈60 FPS).
+        *   Maintain a shared snapshot of simulation state for rendering (thread-safe access).
+        *   Draw roads, vehicles, parking lots, and UI panels using SFML shapes/text.
+        *   Handle close events and graceful shutdown signals.
 *   **Acceptance Criteria**:
-    *   Visual representation matches the log events.
-*   **Deliverables**: `src/display.cpp`.
+    *   SFML window visualizes vehicle movement consistently with log events.
+    *   UI updates in real time (<200 ms lag) and handles at least 60 simultaneous vehicles without noticeable stutter.
+*   **Deliverables**: `src/display.cpp`, updated build instructions for SFML.
 
 ---
 

@@ -304,11 +304,13 @@ The visualizer window shows:
 │  [P2] Bus             │  │ LOT    │               │             │
 │  [P3] Normal          │  └────────┘               │             │
 │                       │                           │             │
-│  STATE INDICATORS:    │                           │             │
-│  Red = Waiting        │    [Live Log Panel]       │             │
-│  Green = Crossing     │    Vehicle 5 arrived...   │             │
-│  Blue = Parking       │    Vehicle 3 crossing...  │             │
-│  Magenta = Transit    │    Vehicle 2 exited...    │             │
+│                       │                          │STATE INDICATORS:│
+│                       │                           │Red = Waiting│
+│     ┌────────┐        │                           │Green=Crossing│
+│     │PARKING │        │                           │Blue = Parking│
+│     │ LOT    |        │                           |Magenta=Transit|                  
+││    └────────┘        |                           │              |
+││    └────────┘        |                           │              |
 └─────────────────────────────────────────────────────────────────┘
 ```
 

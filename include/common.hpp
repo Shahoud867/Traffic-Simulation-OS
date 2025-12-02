@@ -54,14 +54,17 @@ typedef enum {
     TRANSIT = 0,           // Vehicle transitioning between intersections
     EMERGENCY_CLEAR = 1,   // Emergency vehicle approaching
     ACK = 2,               // Acknowledgment
-    SHUTDOWN = 3           // Graceful shutdown signal
+    SHUTDOWN = 3,          // Graceful shutdown signal
+    EMERGENCY_PASSED = 4   // Phase 5: Emergency vehicle has passed
 } MessageType;
 
 // Phase 2: Intersection State with Quadrant Mutexes
 typedef struct {
     pthread_mutex_t quadrant_mutexes[4];
-    bool emergency_mode;
+    volatile bool emergency_mode;           // Phase 5: Flag to block normal vehicles
     pthread_mutex_t emergency_lock;
+    pthread_cond_t emergency_cond;          // Phase 5: Condition variable for waiting
+    int emergency_vehicles_pending;         // Phase 5: Count of pending emergency vehicles
     int vehicles_in_intersection;
     pthread_mutex_t count_lock;
 } IntersectionState;
@@ -112,6 +115,7 @@ typedef struct {
     time_t arrival_time;
     PriorityLevel priority;
     struct ControllerContext* controller_ctx;
+    bool is_transit_vehicle;    // Phase 5: True if vehicle came from another intersection
 } VehicleArgs;
 
 // Phase 3: Controller Context

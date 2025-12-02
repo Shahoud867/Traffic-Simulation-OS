@@ -17,11 +17,13 @@ void init_intersection_state(IntersectionState* state) {
     
     pthread_mutex_init(&state->emergency_lock, NULL);
     pthread_mutex_init(&state->count_lock, NULL);
+    pthread_cond_init(&state->emergency_cond, NULL);  // Phase 5: Initialize condition variable
     
     state->emergency_mode = false;
+    state->emergency_vehicles_pending = 0;  // Phase 5: Initialize pending count
     state->vehicles_in_intersection = 0;
     
-    log_event("Intersection state initialized with 4 quadrant mutexes");
+    log_event("Intersection state initialized with 4 quadrant mutexes (Phase 5: emergency preemption enabled)");
 }
 
 // Cleanup intersection state
@@ -31,6 +33,7 @@ void cleanup_intersection_state(IntersectionState* state) {
     }
     pthread_mutex_destroy(&state->emergency_lock);
     pthread_mutex_destroy(&state->count_lock);
+    pthread_cond_destroy(&state->emergency_cond);  // Phase 5: Destroy condition variable
     
     log_event("Intersection state cleaned up");
 }
@@ -88,6 +91,7 @@ void* ipc_listener_routine(void* arg) {
                 vargs->arrival_time = time(NULL);
                 vargs->priority = get_priority_for_type(vargs->type);
                 vargs->controller_ctx = ctx;
+                vargs->is_transit_vehicle = true;  // Phase 5: Mark as transit vehicle
                 
                 pthread_t thread;
                 if (pthread_create(&thread, NULL, vehicle_routine, vargs) != 0) {
@@ -102,14 +106,37 @@ void* ipc_listener_routine(void* arg) {
                 }
             }
             else if (msg.type == EMERGENCY_CLEAR) {
-                sprintf(log_msg, "%s received EMERGENCY_CLEAR signal", ctx->name);
+                sprintf(log_msg, "%s received EMERGENCY_CLEAR signal for Vehicle %d (%s)", 
+                        ctx->name, msg.vehicle_id,
+                        (msg.v_type == AMBULANCE ? "Ambulance" : "Firetruck"));
                 log_event(log_msg);
                 
+                // Phase 5: Activate emergency mode to block normal vehicles
                 pthread_mutex_lock(&ctx->state->emergency_lock);
+                ctx->state->emergency_vehicles_pending++;
                 ctx->state->emergency_mode = true;
+                sprintf(log_msg, "%s EMERGENCY MODE ACTIVATED - Pending: %d, blocking normal traffic", 
+                        ctx->name, ctx->state->emergency_vehicles_pending);
+                log_event(log_msg);
                 pthread_mutex_unlock(&ctx->state->emergency_lock);
+            }
+            else if (msg.type == EMERGENCY_PASSED) {
+                sprintf(log_msg, "%s received EMERGENCY_PASSED signal for Vehicle %d", 
+                        ctx->name, msg.vehicle_id);
+                log_event(log_msg);
                 
-                // TODO: Implement emergency handling in future phases
+                // Phase 5: Decrement pending count and possibly deactivate emergency mode
+                pthread_mutex_lock(&ctx->state->emergency_lock);
+                ctx->state->emergency_vehicles_pending--;
+                if (ctx->state->emergency_vehicles_pending <= 0) {
+                    ctx->state->emergency_vehicles_pending = 0;
+                    ctx->state->emergency_mode = false;
+                    sprintf(log_msg, "%s EMERGENCY MODE DEACTIVATED - Normal traffic can resume", ctx->name);
+                    log_event(log_msg);
+                    // Wake up all waiting normal vehicles
+                    pthread_cond_broadcast(&ctx->state->emergency_cond);
+                }
+                pthread_mutex_unlock(&ctx->state->emergency_lock);
             }
             else if (msg.type == SHUTDOWN) {
                 sprintf(log_msg, "%s received SHUTDOWN signal", ctx->name);

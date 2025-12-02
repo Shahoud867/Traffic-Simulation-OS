@@ -135,6 +135,26 @@ void* vehicle_routine(void* arg) {
         vargs->controller_ctx->name, DirectionNames[vargs->entry]);
     log_event(log_msg);
 
+    // Phase 5: Check if this is an emergency vehicle
+    bool is_emergency = (vargs->type == AMBULANCE || vargs->type == FIRETRUCK);
+    
+    // Phase 5: Normal vehicles must wait if emergency mode is active
+    if (!is_emergency) {
+        pthread_mutex_lock(&vargs->controller_ctx->state->emergency_lock);
+        while (vargs->controller_ctx->state->emergency_mode) {
+            sprintf(log_msg, "Vehicle %d (%s) WAITING - Emergency mode active at %s",
+                    vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
+            log_event(log_msg);
+            pthread_cond_wait(&vargs->controller_ctx->state->emergency_cond,
+                             &vargs->controller_ctx->state->emergency_lock);
+        }
+        pthread_mutex_unlock(&vargs->controller_ctx->state->emergency_lock);
+    } else {
+        sprintf(log_msg, "Vehicle %d (%s) EMERGENCY VEHICLE - Priority passage at %s",
+                vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
+        log_event(log_msg);
+    }
+
     // Phase 4: Handle parking destination
     bool going_to_park = (vargs->dest == PARKING);
     bool parking_acquired = false;
@@ -185,6 +205,23 @@ void* vehicle_routine(void* arg) {
     // Phase 2: Release quadrants
     release_quadrants(vargs->controller_ctx->state->quadrant_mutexes, quadrants, quad_count, vargs->id);
 
+    // Phase 5: If this is an emergency transit vehicle, send EMERGENCY_PASSED to source intersection
+    if (is_emergency && vargs->is_transit_vehicle && vargs->controller_ctx->write_fd > 0) {
+        IPCMessage passed_msg;
+        passed_msg.type = EMERGENCY_PASSED;
+        passed_msg.vehicle_id = vargs->id;
+        passed_msg.v_type = vargs->type;
+        passed_msg.timestamp = time(NULL);
+        
+        ssize_t written = write(vargs->controller_ctx->write_fd, &passed_msg, sizeof(IPCMessage));
+        if (written > 0) {
+            sprintf(log_msg, "Vehicle %d (%s) sent EMERGENCY_PASSED to %s - clearing emergency mode", 
+                    vargs->id, VehicleTypeNames[vargs->type],
+                    strcmp(vargs->controller_ctx->name, "F10") == 0 ? "F11" : "F10");
+            log_event(log_msg);
+        }
+    }
+
     // Phase 4: If parking, simulate parking duration then leave
     if (parking_acquired) {
         sprintf(log_msg, "Vehicle %d: PARKING (duration: 3-7 seconds)", vargs->id);
@@ -219,6 +256,26 @@ void* vehicle_routine(void* arg) {
         }
         
         if (should_transit) {
+            // Phase 5: Emergency vehicles send EMERGENCY_CLEAR signal BEFORE transit
+            if (is_emergency) {
+                IPCMessage clear_msg;
+                clear_msg.type = EMERGENCY_CLEAR;
+                clear_msg.vehicle_id = vargs->id;
+                clear_msg.v_type = vargs->type;
+                clear_msg.entry_point = new_entry;
+                clear_msg.destination = vargs->dest;
+                clear_msg.timestamp = time(NULL);
+                
+                ssize_t written = write(vargs->controller_ctx->write_fd, &clear_msg, sizeof(IPCMessage));
+                if (written > 0) {
+                    sprintf(log_msg, "Vehicle %d (%s) sent EMERGENCY_CLEAR to %s", 
+                            vargs->id, VehicleTypeNames[vargs->type],
+                            strcmp(vargs->controller_ctx->name, "F10") == 0 ? "F11" : "F10");
+                    log_event(log_msg);
+                }
+            }
+            
+            // Send TRANSIT message
             IPCMessage msg;
             msg.type = TRANSIT;
             msg.vehicle_id = vargs->id;
@@ -239,6 +296,15 @@ void* vehicle_routine(void* arg) {
                 log_event(log_msg);
             }
         } else {
+            // Phase 5: Emergency vehicle exiting system - send EMERGENCY_PASSED to clear mode
+            // (This applies when emergency vehicle exits without transiting to another intersection)
+            if (is_emergency) {
+                // Clear emergency mode at current intersection
+                pthread_mutex_lock(&vargs->controller_ctx->state->emergency_lock);
+                // Note: Emergency mode for local intersection is handled by condition in main routine
+                pthread_mutex_unlock(&vargs->controller_ctx->state->emergency_lock);
+            }
+            
             sprintf(log_msg, "Vehicle %d exited the system from %s", 
                     vargs->id, vargs->controller_ctx->name);
             log_event(log_msg);
@@ -315,6 +381,7 @@ void* vehicle_generator_with_context(void* arg) {
         
         vargs->intersection_id = ctx->id;
         vargs->controller_ctx = ctx;
+        vargs->is_transit_vehicle = false;  // Phase 5: Locally spawned, not a transit vehicle
 
         pthread_t tid;
         if (pthread_create(&tid, NULL, vehicle_routine, vargs) != 0) {

@@ -58,18 +58,34 @@ int get_required_quadrants(Direction entry, Direction dest, int* quadrants) {
         quadrants[0] = NW; count = 1;
     }
     
-    //Left turns (3 quadrants)
+    //Left turns (3 quadrants) - vehicle crosses through the intersection
+    //Intersection layout:
+    //        NORTH
+    //          |
+    //    NW    |    NE
+    //  --------|--------
+    //WEST      |      EAST
+    //  --------|--------
+    //    SW    |    SE
+    //          |
+    //        SOUTH
+    //
+    //For left turns, vehicle enters, crosses center, then exits on left side
     else if (entry == NORTH && dest == WEST) { 
-        quadrants[0] = NW; quadrants[1] = SE; quadrants[2] = SW; count = 3;
+        //Enter from North (NE side), cross to NW, then exit West
+        quadrants[0] = NE; quadrants[1] = NW; quadrants[2] = SW; count = 3;
     }
     else if (entry == WEST && dest == SOUTH) { 
-        quadrants[0] = NE; quadrants[1] = SE; quadrants[2] = SW; count = 3;
+        //Enter from West (NW side), cross to SW, then exit South
+        quadrants[0] = NW; quadrants[1] = SW; quadrants[2] = SE; count = 3;
     }
     else if (entry == SOUTH && dest == EAST) { 
-        quadrants[0] = NE; quadrants[1] = NW; quadrants[2] = SE; count = 3;
+        //Enter from South (SW side), cross to SE, then exit East
+        quadrants[0] = SW; quadrants[1] = SE; quadrants[2] = NE; count = 3;
     }
     else if (entry == EAST && dest == NORTH) { 
-        quadrants[0] = NE; quadrants[1] = NW; quadrants[2] = SW; count = 3;
+        //Enter from East (SE side), cross to NE, then exit North
+        quadrants[0] = SE; quadrants[1] = NE; quadrants[2] = NW; count = 3;
     }
     
     //Sort quadrants to ensure consistent lock ordering (bubble sort)
@@ -145,15 +161,52 @@ void* vehicle_routine(void* arg) {
     bool is_emergency = (vargs->type == AMBULANCE || vargs->type == FIRETRUCK);
     
     //Phase 5: Normal vehicles must wait if emergency mode is active
+    //Added timeout to prevent permanent blocking if EMERGENCY_PASSED message is lost
     if (!is_emergency) {
         pthread_mutex_lock(&vargs->controller_ctx->state->emergency_lock);
-        while (vargs->controller_ctx->state->emergency_mode) {
-            sprintf(log_msg, "Vehicle %d (%s) WAITING - Emergency mode active at %s",
-                    vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
-            log_event(log_msg);
-            pthread_cond_wait(&vargs->controller_ctx->state->emergency_cond,
-                             &vargs->controller_ctx->state->emergency_lock);
+        
+        //Use timed wait with 10 second timeout to prevent permanent blocking
+        struct timespec timeout;
+        int wait_count = 0;
+        const int MAX_EMERGENCY_WAIT_CYCLES = 20; //20 * 500ms = 10 seconds max wait
+        
+        while (vargs->controller_ctx->state->emergency_mode && wait_count < MAX_EMERGENCY_WAIT_CYCLES) {
+            if (wait_count == 0) {
+                sprintf(log_msg, "Vehicle %d (%s) WAITING - Emergency mode active at %s",
+                        vargs->id, VehicleTypeNames[vargs->type], vargs->controller_ctx->name);
+                log_event(log_msg);
+            }
+            
+            //Use timed wait (500ms) to allow periodic checking
+            clock_gettime(CLOCK_REALTIME, &timeout);
+            timeout.tv_nsec += 500000000; //500ms
+            if (timeout.tv_nsec >= 1000000000) {
+                timeout.tv_sec += 1;
+                timeout.tv_nsec -= 1000000000;
+            }
+            
+            pthread_cond_timedwait(&vargs->controller_ctx->state->emergency_cond,
+                                   &vargs->controller_ctx->state->emergency_lock,
+                                   &timeout);
+            wait_count++;
         }
+        
+        //If we timed out while still in emergency mode, force clear it
+        if (vargs->controller_ctx->state->emergency_mode && wait_count >= MAX_EMERGENCY_WAIT_CYCLES) {
+            sprintf(log_msg, "Vehicle %d: Emergency mode timeout at %s - force clearing stuck state",
+                    vargs->id, vargs->controller_ctx->name);
+            log_event(log_msg);
+            
+            //Reset emergency state to prevent permanent blockage
+            vargs->controller_ctx->state->emergency_mode = false;
+            vargs->controller_ctx->state->emergency_vehicles_pending = 0;
+            pthread_cond_broadcast(&vargs->controller_ctx->state->emergency_cond);
+            
+            sprintf(log_msg, "%s EMERGENCY MODE FORCE CLEARED - traffic resuming",
+                    vargs->controller_ctx->name);
+            log_event(log_msg);
+        }
+        
         pthread_mutex_unlock(&vargs->controller_ctx->state->emergency_lock);
     } else {
         sprintf(log_msg, "Vehicle %d (%s) EMERGENCY VEHICLE - Priority passage at %s",

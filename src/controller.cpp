@@ -145,6 +145,18 @@ void* ipc_listener_routine(void* arg) {
                 sprintf(log_msg, "%s received SHUTDOWN signal", ctx->name);
                 log_event(log_msg);
                 ctx->running = false;
+                
+                //Clear emergency mode on shutdown to unblock any waiting vehicles
+                pthread_mutex_lock(&ctx->state->emergency_lock);
+                if (ctx->state->emergency_mode) {
+                    ctx->state->emergency_mode = false;
+                    ctx->state->emergency_vehicles_pending = 0;
+                    sprintf(log_msg, "%s clearing emergency mode for shutdown", ctx->name);
+                    log_event(log_msg);
+                    pthread_cond_broadcast(&ctx->state->emergency_cond);
+                }
+                pthread_mutex_unlock(&ctx->state->emergency_lock);
+                
                 break;
             }
         } else if (bytes == 0) {

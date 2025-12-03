@@ -40,44 +40,44 @@ bool can_vehicle_park(VehicleType type) {
 bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
     char log_msg[256];
     
-    //Try to enter waiting queue (non-blocking check)
-    int queue_val;
-    sem_getvalue(&parking->sem_waiting_queue, &queue_val);
-    
-    if (queue_val <= 0) {
+    //Try to enter waiting queue using sem_trywait (non-blocking, atomic)
+    //This avoids the race condition between checking and acquiring
+    if (sem_trywait(&parking->sem_waiting_queue) != 0) {
+        //Queue is full - cannot even wait
         sprintf(log_msg, "Vehicle %d: Waiting queue full, rerouting", vehicle_id);
         log_event(log_msg);
         return false;
     }
     
-    //Acquire waiting queue slot
+    //Successfully acquired a queue slot
     sprintf(log_msg, "Vehicle %d: Entering parking waiting queue", vehicle_id);
     log_event(log_msg);
     
-    sem_wait(&parking->sem_waiting_queue);
-    
-    //Update waiting count
+    //Update waiting count atomically
     pthread_mutex_lock(&parking->stats_lock);
     parking->waiting_count++;
+    int current_waiting = parking->waiting_count;
     pthread_mutex_unlock(&parking->stats_lock);
     
-    sprintf(log_msg, "Vehicle %d: Waiting for parking spot...", vehicle_id);
+    sprintf(log_msg, "Vehicle %d: Waiting for parking spot... (Queue: %d/%d)", 
+            vehicle_id, current_waiting, parking->queue_capacity);
     log_event(log_msg);
     
-    //Wait for actual parking spot
+    //Now wait for actual parking spot (blocking wait is OK here since we're in queue)
     sem_wait(&parking->sem_parking_spots);
     
-    //Got parking spot, release queue slot
-    sem_post(&parking->sem_waiting_queue);
-    
-    //Update counts
+    //Got parking spot - update counts atomically
     pthread_mutex_lock(&parking->stats_lock);
     parking->waiting_count--;
     parking->parked_count++;
+    int parked = parking->parked_count;
     pthread_mutex_unlock(&parking->stats_lock);
     
-    sprintf(log_msg, "Vehicle %d: ACQUIRED parking spot (Total parked: %d/10)", 
-            vehicle_id, parking->parked_count);
+    //Release queue slot AFTER updating counts to prevent race
+    sem_post(&parking->sem_waiting_queue);
+    
+    sprintf(log_msg, "Vehicle %d: ACQUIRED parking spot (Total parked: %d/%d)", 
+            vehicle_id, parked, parking->total_spots);
     log_event(log_msg);
     
     return true;
@@ -85,16 +85,21 @@ bool try_acquire_parking(ParkingLot* parking, int vehicle_id) {
 
 //Release parking spot
 void release_parking(ParkingLot* parking, int vehicle_id) {
+    //Update parked count first, then release semaphore
     pthread_mutex_lock(&parking->stats_lock);
-    parking->parked_count--;
+    if (parking->parked_count > 0) {
+        parking->parked_count--;
+    }
     int current_parked = parking->parked_count;
+    int total = parking->total_spots;
     pthread_mutex_unlock(&parking->stats_lock);
     
+    //Release the parking spot semaphore - this may wake a waiting vehicle
     sem_post(&parking->sem_parking_spots);
     
     char log_msg[256];
-    sprintf(log_msg, "Vehicle %d: RELEASED parking spot (Total parked: %d/10)", 
-            vehicle_id, current_parked);
+    sprintf(log_msg, "Vehicle %d: RELEASED parking spot (Total parked: %d/%d)", 
+            vehicle_id, current_parked, total);
     log_event(log_msg);
 }
 

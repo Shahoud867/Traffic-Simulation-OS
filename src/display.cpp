@@ -413,9 +413,9 @@ void parse_log_line(const std::string& line) {
         return;
     }
     
-    //Parse waiting for parking (bounded queue)
-    std::regex waiting_parking_regex(R"(Vehicle (\d+).*waiting for parking)");
-    if (std::regex_search(line, match, waiting_parking_regex)) {
+    //Parse entering parking waiting queue
+    std::regex entering_queue_regex(R"(Vehicle (\d+): Entering parking waiting queue)");
+    if (std::regex_search(line, match, entering_queue_regex)) {
         g_parking.waiting_count++;
         if (g_parking.waiting_count > g_parking.queue_capacity) {
             g_parking.waiting_count = g_parking.queue_capacity;
@@ -423,10 +423,26 @@ void parse_log_line(const std::string& line) {
         return;
     }
     
-    //Parse acquired parking spot (reduce waiting)
-    std::regex acquired_parking_regex(R"(Vehicle (\d+).*acquired parking|got parking spot)");
+    //Parse waiting for parking spot (vehicle is in queue, waiting for spot)
+    std::regex waiting_parking_regex(R"(Vehicle (\d+): Waiting for parking spot)");
+    if (std::regex_search(line, match, waiting_parking_regex)) {
+        //Already in queue, just update state for the vehicle if needed
+        return;
+    }
+    
+    //Parse acquired parking spot - vehicle got a spot, leaves queue
+    std::regex acquired_parking_regex(R"(Vehicle (\d+): ACQUIRED parking spot)");
     if (std::regex_search(line, match, acquired_parking_regex)) {
+        //When vehicle acquires parking, it releases its queue slot
+        //The waiting_count is decremented and parked_count is updated via the parked_regex
         if (g_parking.waiting_count > 0) g_parking.waiting_count--;
+        return;
+    }
+    
+    //Parse parking unavailable/rerouting (queue full)
+    std::regex parking_unavail_regex(R"(Vehicle (\d+): (Parking unavailable|Waiting queue full|No parking))");
+    if (std::regex_search(line, match, parking_unavail_regex)) {
+        //Vehicle couldn't park, will exit system - no state change needed
         return;
     }
     
@@ -485,6 +501,13 @@ void parse_log_line(const std::string& line) {
     //Try both intersections
         g_vehicles.erase("F10_" + id_str);
         g_vehicles.erase("F11_" + id_str);
+        return;
+    }
+    
+    //Parse released parking spot
+    std::regex released_parking_regex(R"(Vehicle (\d+): RELEASED parking spot)");
+    if (std::regex_search(line, match, released_parking_regex)) {
+        //parked_count is updated via parked_regex - this is informational
         return;
     }
     
